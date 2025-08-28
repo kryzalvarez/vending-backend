@@ -5,7 +5,7 @@ const dotenv = require('dotenv');
 const { MercadoPagoConfig, Preference, Payment } = require('mercadopago');
 const cors = require('cors');
 const cron = require('node-cron');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 // --- IMPORTAR MODELOS ---
