@@ -15,7 +15,16 @@ const Sale = require('./models/Sale');
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.use(cors());
+
+// --- CONFIGURACIÓN DE CORS ---
+// Usamos la variable de entorno para mayor seguridad en producción
+const corsOptions = {
+  origin: process.env.FRONTEND_URL,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+// --- FIN DE CONFIGURACIÓN DE CORS ---
+
 app.use(express.json());
 
 // --- Configuración del cliente de Mercado Pago ---
@@ -265,15 +274,28 @@ app.post('/api/sales/webhook', async (req, res) => {
   console.log("--- FIN WEBHOOK ---");
 });
 
+
+// --- CÓDIGO MODIFICADO ---
 app.get('/api/sales', async (req, res) => {
   try {
-    const sales = await Sale.find().sort({ createdAt: -1 });
+    const { machineId } = req.query; // Obtenemos el machineId de la URL (ej: ?machineId=VM001)
+
+    let filter = {}; // Creamos un objeto de filtro vacío
+
+    if (machineId) {
+      filter.machineId = machineId; // Si nos pasan un machineId, lo añadimos al filtro
+    }
+
+    const sales = await Sale.find(filter).sort({ createdAt: -1 });
     res.json(sales);
+    
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Error en el servidor');
   }
 });
+// --- FIN DEL CÓDIGO MODIFICADO ---
+
 
 // --- TAREA PROGRAMADA (VIGILANTE) ---
 const checkMachineStatuses = async () => {
