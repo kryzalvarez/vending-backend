@@ -1,4 +1,4 @@
-// index.js (Código Completo con Autenticación)
+// index.js (Versión final fusionada)
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -13,7 +13,7 @@ const Machine = require('./models/Machine');
 const Product = require('./models/Product');
 const Inventory = require('./models/Inventory');
 const Sale = require('./models/Sale');
-const User = require('./models/User'); // <-- NUEVO MODELO
+const User = require('./models/User');
 
 dotenv.config();
 const app = express();
@@ -47,62 +47,39 @@ app.get('/', (req, res) => {
   res.send('API del Vending System funcionando!');
 });
 
-
 // --- ENDPOINTS PARA USUARIOS Y AUTENTICACIÓN ---
-
-// Registrar un nuevo usuario
 app.post('/api/users/register', async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
-
-    // Verificar si el usuario ya existe
     let user = await User.findOne({ email });
     if (user) {
       return res.status(400).json({ msg: 'El usuario ya existe' });
     }
-
-    // Crear nuevo usuario
     user = new User({ name, email, password, role });
-
-    // Encriptar contraseña
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(password, salt);
-
     await user.save();
-
     res.status(201).json({ msg: 'Usuario registrado exitosamente' });
-
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Error en el servidor');
   }
 });
 
-// Iniciar sesión
 app.post('/api/users/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Verificar si el usuario existe
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ msg: 'Credenciales inválidas' });
     }
-
-    // Comparar contraseñas
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ msg: 'Credenciales inválidas' });
     }
-
-    // Crear y firmar el token
     const payload = {
-      user: {
-        id: user.id,
-        role: user.role
-      }
+      user: { id: user.id, role: user.role }
     };
-
     jwt.sign(
       payload,
       process.env.JWT_SECRET,
@@ -112,14 +89,13 @@ app.post('/api/users/login', async (req, res) => {
         res.json({ token, role: user.role, name: user.name });
       }
     );
-
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Error en el servidor');
   }
 });
 
-
+// --- (El resto de tus endpoints para máquinas, productos e inventario van aquí sin cambios) ---
 // --- ENDPOINTS PARA MÁQUINAS ---
 app.post('/api/machines', async (req, res) => {
   try {
@@ -191,7 +167,6 @@ app.get('/api/products', async (req, res) => {
 });
 
 // --- ENDPOINTS PARA INVENTARIO ---
-// (El resto de tus endpoints de inventario, ventas, etc., van aquí sin cambios)
 app.post('/api/inventory', async (req, res) => {
   try {
     const { machineId, channelId, productId, quantity, price } = req.body;
@@ -257,6 +232,7 @@ app.delete('/api/inventory/:id', async (req, res) => {
     res.status(500).send('Error en el servidor');
   }
 });
+
 
 // --- ENDPOINTS PARA VENTAS Y PAGOS ---
 app.post('/api/sales/create-payment', async (req, res) => {
@@ -367,7 +343,6 @@ const checkMachineStatuses = async () => {
     console.log(`⏰ Ejecutando tarea del vigilante: Verificando máquinas inactivas...`);
     const TOLERANCE_MINUTES = 7;
     const cutoffTime = new Date(Date.now() - TOLERANCE_MINUTES * 60 * 1000);
-
     try {
         const result = await Machine.updateMany(
             { 
@@ -376,7 +351,6 @@ const checkMachineStatuses = async () => {
             },
             { $set: { status: 'offline' } }
         );
-
         if (result.modifiedCount > 0) {
             console.log(`🚨 Vigilante: ${result.modifiedCount} máquina(s) marcada(s) como offline.`);
         } else {
