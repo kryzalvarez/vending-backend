@@ -1,21 +1,29 @@
-// index.js (Código Completo con Tarea Programada "Vigilante")
+// index.js (Código Completo con Autenticación)
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const { MercadoPagoConfig, Preference, Payment } = require('mercadopago');
 const cors = require('cors');
-const cron = require('node-cron'); // Importamos node-cron
+const cron = require('node-cron');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 // --- IMPORTAR MODELOS ---
 const Machine = require('./models/Machine');
 const Product = require('./models/Product');
 const Inventory = require('./models/Inventory');
 const Sale = require('./models/Sale');
+const User = require('./models/User'); // <-- NUEVO MODELO
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.use(cors());
+
+const corsOptions = {
+  origin: process.env.FRONTEND_URL,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // --- Configuración del cliente de Mercado Pago ---
@@ -38,6 +46,79 @@ const connectDB = async () => {
 app.get('/', (req, res) => {
   res.send('API del Vending System funcionando!');
 });
+
+
+// --- ENDPOINTS PARA USUARIOS Y AUTENTICACIÓN ---
+
+// Registrar un nuevo usuario
+app.post('/api/users/register', async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+
+    // Verificar si el usuario ya existe
+    let user = await User.findOne({ email });
+    if (user) {
+      return res.status(400).json({ msg: 'El usuario ya existe' });
+    }
+
+    // Crear nuevo usuario
+    user = new User({ name, email, password, role });
+
+    // Encriptar contraseña
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(password, salt);
+
+    await user.save();
+
+    res.status(201).json({ msg: 'Usuario registrado exitosamente' });
+
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Error en el servidor');
+  }
+});
+
+// Iniciar sesión
+app.post('/api/users/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Verificar si el usuario existe
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ msg: 'Credenciales inválidas' });
+    }
+
+    // Comparar contraseñas
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ msg: 'Credenciales inválidas' });
+    }
+
+    // Crear y firmar el token
+    const payload = {
+      user: {
+        id: user.id,
+        role: user.role
+      }
+    };
+
+    jwt.sign(
+      payload,
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' },
+      (err, token) => {
+        if (err) throw err;
+        res.json({ token, role: user.role, name: user.name });
+      }
+    );
+
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Error en el servidor');
+  }
+});
+
 
 // --- ENDPOINTS PARA MÁQUINAS ---
 app.post('/api/machines', async (req, res) => {
@@ -110,6 +191,7 @@ app.get('/api/products', async (req, res) => {
 });
 
 // --- ENDPOINTS PARA INVENTARIO ---
+// (El resto de tus endpoints de inventario, ventas, etc., van aquí sin cambios)
 app.post('/api/inventory', async (req, res) => {
   try {
     const { machineId, channelId, productId, quantity, price } = req.body;
@@ -267,7 +349,12 @@ app.post('/api/sales/webhook', async (req, res) => {
 
 app.get('/api/sales', async (req, res) => {
   try {
-    const sales = await Sale.find().sort({ createdAt: -1 });
+    const { machineId } = req.query;
+    let filter = {};
+    if (machineId) {
+      filter.machineId = machineId;
+    }
+    const sales = await Sale.find(filter).sort({ createdAt: -1 });
     res.json(sales);
   } catch (err) {
     console.error(err.message);
@@ -285,7 +372,7 @@ const checkMachineStatuses = async () => {
         const result = await Machine.updateMany(
             { 
                 status: 'online', 
-                lastHeartbeat: { $lt: cutoffTime } // $lt significa "less than" (menor que)
+                lastHeartbeat: { $lt: cutoffTime }
             },
             { $set: { status: 'offline' } }
         );
