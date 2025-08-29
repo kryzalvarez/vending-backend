@@ -95,7 +95,70 @@ app.post('/api/users/login', async (req, res) => {
   }
 });
 
-// --- (El resto de tus endpoints para máquinas, productos e inventario van aquí sin cambios) ---
+// --- ENDPOINTS DE ANALÍTICA ---
+app.get('/api/analytics/kpis', async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const salesToday = await Sale.find({
+      createdAt: { $gte: today, $lt: tomorrow },
+      status: 'approved'
+    });
+    const totalRevenueToday = salesToday.reduce((total, sale) => {
+      return total + sale.items.reduce((itemTotal, item) => itemTotal + (item.price * item.quantity), 0);
+    }, 0);
+    const offlineMachinesCount = await Machine.countDocuments({ status: 'offline' });
+    const LOW_STOCK_THRESHOLD = 5;
+    const lowStockItemsCount = await Inventory.countDocuments({ quantity: { $lt: LOW_STOCK_THRESHOLD } });
+    res.json({
+      totalRevenueToday,
+      offlineMachinesCount,
+      lowStockItemsCount
+    });
+  } catch (err) {
+    console.error("Error al calcular KPIs:", err.message);
+    res.status(500).send('Error en el servidor');
+  }
+});
+
+app.get('/api/analytics/sales-performance', async (req, res) => {
+  try {
+    const topProducts = await Sale.aggregate([
+      { $match: { status: 'approved' } },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.productId',
+          name: { $first: '$items.name' },
+          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
+          totalUnitsSold: { $sum: '$items.quantity' }
+        }
+      },
+      { $sort: { totalRevenue: -1 } },
+      { $limit: 5 }
+    ]);
+    const topMachines = await Sale.aggregate([
+      { $match: { status: 'approved' } },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$machineId',
+          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
+          totalSales: { $sum: 1 }
+        }
+      },
+      { $sort: { totalRevenue: -1 } },
+      { $limit: 5 }
+    ]);
+    res.json({ topProducts, topMachines });
+  } catch (err) {
+    console.error("Error al calcular performance de ventas:", err.message);
+    res.status(500).send('Error en el servidor');
+  }
+});
+
 // --- ENDPOINTS PARA MÁQUINAS ---
 app.post('/api/machines', async (req, res) => {
   try {
