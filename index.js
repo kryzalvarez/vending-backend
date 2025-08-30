@@ -176,26 +176,46 @@ app.get('/api/analytics/technician-dashboard', async (req, res) => {
   }
 });
 
+// En tu archivo index.js del backend
+
 app.get('/api/analytics/sales-performance', async (req, res) => {
   try {
+    const { startDate, endDate } = req.query;
+
+    // Construir el filtro de fecha para MongoDB
+    const dateFilter = {};
+    if (startDate && endDate) {
+      dateFilter.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
+      };
+    }
+
+    const matchFilter = { status: 'approved', ...dateFilter };
+
     const topProducts = await Sale.aggregate([
-      { $match: { status: 'approved' } }, { $unwind: '$items' },
+      { $match: matchFilter },
+      { $unwind: '$items' },
       { $group: {
           _id: '$items.name',
           totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
           totalUnitsSold: { $sum: '$items.quantity' }
       }},
-      { $sort: { totalRevenue: -1 } }, { $limit: 10 }
+      { $sort: { totalRevenue: -1 } },
+      { $limit: 5 }
     ]);
+
     const topMachines = await Sale.aggregate([
-      { $match: { status: 'approved' } }, { $unwind: '$items' },
+      { $match: matchFilter },
+      { $unwind: '$items' },
       { $group: {
           _id: '$machineId',
-          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
-          totalSales: { $sum: 1 }
+          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
       }},
-      { $sort: { totalRevenue: -1 } }, { $limit: 10 }
+      { $sort: { totalRevenue: -1 } },
+      { $limit: 5 }
     ]);
+
     res.json({ topProducts, topMachines });
   } catch (err) {
     console.error("Error al calcular performance de ventas:", err.message);
