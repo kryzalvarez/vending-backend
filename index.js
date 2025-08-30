@@ -1,4 +1,4 @@
-// index.js (Versión final con Super-Endpoint de Admin)
+// index.js (Versión final con Super-Endpoint de Admin corregido)
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -119,6 +119,9 @@ app.get('/api/analytics/admin-dashboard', async (req, res) => {
     
     const ticketPromedio = salesToday.length > 0 ? totalRevenueToday / salesToday.length : 0;
     
+    const LOW_STOCK_THRESHOLD = 5;
+    const lowStockItemsCount = await Inventory.countDocuments({ quantity: { $lt: LOW_STOCK_THRESHOLD } });
+
     // --- 2. ESTADO DE LA RED ---
     const machineStatus = await Machine.aggregate([
       { $group: { _id: '$status', count: { $sum: 1 } } }
@@ -158,6 +161,7 @@ app.get('/api/analytics/admin-dashboard', async (req, res) => {
         revenueChangeVsYesterday: totalRevenueYesterday > 0 ? ((totalRevenueToday - totalRevenueYesterday) / totalRevenueYesterday) * 100 : totalRevenueToday > 0 ? 100 : 0,
         totalUnitsToday,
         ticketPromedio,
+        lowStockItemsCount, // <-- LÍNEA CORREGIDA
       },
       networkStatus,
       salesLast7Days,
@@ -216,6 +220,7 @@ app.get('/api/analytics/sales-performance', async (req, res) => {
     res.status(500).send('Error en el servidor');
   }
 });
+
 
 // --- ENDPOINTS PARA MÁQUINAS ---
 app.post('/api/machines', async (req, res) => {
