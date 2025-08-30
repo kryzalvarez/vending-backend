@@ -1,4 +1,4 @@
-// index.js (Versión con notificaciones a usuarios desde la BD)
+// index.js (Versión final y completa)
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -8,13 +8,13 @@ const cron = require('node-cron');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// --- IMPORTAR MODELOS ---
+// --- IMPORTAR MODELOS Y SERVICIOS ---
 const Machine = require('./models/Machine');
 const Product = require('./models/Product');
 const Inventory = require('./models/Inventory');
 const Sale = require('./models/Sale');
 const User = require('./models/User');
-const { sendMachineOfflineAlert } = require('./services/mailService'); // Importamos el servicio de correo
+const { sendMachineOfflineAlert } = require('./services/mailService');
 
 dotenv.config();
 const app = express();

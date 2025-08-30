@@ -2,8 +2,6 @@
 const nodemailer = require('nodemailer');
 const sgTransport = require('nodemailer-sendgrid-transport');
 
-// --- Configuración del transportador de correo ---
-// Usamos las variables de entorno para la API Key y el correo verificado
 const options = {
   auth: {
     api_key: process.env.SENDGRID_API_KEY
@@ -15,16 +13,17 @@ const mailer = nodemailer.createTransport(sgTransport(options));
 /**
  * Función para enviar una alerta de máquina desconectada.
  * @param {object} machine - El objeto de la máquina que se desconectó.
+ * @param {string[]} recipients - Un array de correos electrónicos de los destinatarios.
  */
-const sendMachineOfflineAlert = (machine) => {
-  if (!process.env.ALERT_EMAIL_RECIPIENT) {
-    console.error("No se ha configurado un destinatario para las alertas (ALERT_EMAIL_RECIPIENT).");
+const sendMachineOfflineAlert = (machine, recipients) => {
+  if (!recipients || recipients.length === 0) {
+    console.log(`No hay destinatarios para la alerta de la máquina ${machine.machineId}.`);
     return;
   }
   
   const email = {
-    to: [process.env.ALERT_EMAIL_RECIPIENT], // El correo que recibirá la alerta
-    from: 'alertas@vending-system.com', // Puedes usar el correo que verificaste en SendGrid
+    to: recipients, // AHORA ACEPTA MÚLTIPLES CORREOS
+    from: process.env.SENDGRID_FROM_EMAIL || 'alertas@vending-system.com', // Usa una variable de entorno para el remitente
     subject: `Alerta Crítica: Máquina ${machine.machineId} se ha Desconectado`,
     html: `
       <div style="font-family: sans-serif; padding: 20px; color: #333;">
@@ -60,7 +59,7 @@ const sendMachineOfflineAlert = (machine) => {
     if (err) {
       console.error('Error al enviar el email de alerta:', err);
     } else {
-      console.log(`📧 Email de alerta para la máquina ${machine.machineId} enviado exitosamente.`);
+      console.log(`📧 Email de alerta para la máquina ${machine.machineId} enviado a ${recipients.length} destinatario(s).`);
     }
   });
 };
