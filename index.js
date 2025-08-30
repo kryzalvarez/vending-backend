@@ -1,4 +1,4 @@
-// index.js (Versión final con Super-Endpoint de Admin corregido)
+// index.js (Versión con notificaciones a usuarios desde la BD)
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -14,6 +14,7 @@ const Product = require('./models/Product');
 const Inventory = require('./models/Inventory');
 const Sale = require('./models/Sale');
 const User = require('./models/User');
+const { sendMachineOfflineAlert } = require('./services/mailService'); // Importamos el servicio de correo
 
 dotenv.config();
 const app = express();
@@ -96,33 +97,22 @@ app.post('/api/users/login', async (req, res) => {
 });
 
 // --- ENDPOINTS DE ANALÍTICA ---
-
-// Endpoint Potenciado para el Dashboard del Administrador
 app.get('/api/analytics/admin-dashboard', async (req, res) => {
   try {
-    // --- 1. CÁLCULO DE KPIs ---
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(todayStart);
     todayEnd.setDate(todayStart.getDate() + 1);
-    
     const yesterdayStart = new Date(todayStart);
     yesterdayStart.setDate(todayStart.getDate() - 1);
-
     const salesToday = await Sale.find({ createdAt: { $gte: todayStart, $lt: todayEnd }, status: 'approved' });
     const salesYesterday = await Sale.find({ createdAt: { $gte: yesterdayStart, $lt: todayStart }, status: 'approved' });
-
     const totalRevenueToday = salesToday.reduce((total, sale) => total + sale.items.reduce((itemTotal, item) => itemTotal + (item.price * item.quantity), 0), 0);
     const totalRevenueYesterday = salesYesterday.reduce((total, sale) => total + sale.items.reduce((itemTotal, item) => itemTotal + (item.price * item.quantity), 0), 0);
-    
     const totalUnitsToday = salesToday.reduce((total, sale) => total + sale.items.reduce((itemTotal, item) => itemTotal + item.quantity, 0), 0);
-    
     const ticketPromedio = salesToday.length > 0 ? totalRevenueToday / salesToday.length : 0;
-    
     const LOW_STOCK_THRESHOLD = 5;
     const lowStockItemsCount = await Inventory.countDocuments({ quantity: { $lt: LOW_STOCK_THRESHOLD } });
-
-    // --- 2. ESTADO DE LA RED ---
     const machineStatus = await Machine.aggregate([
       { $group: { _id: '$status', count: { $sum: 1 } } }
     ]);
@@ -136,8 +126,6 @@ app.get('/api/analytics/admin-dashboard', async (req, res) => {
       networkStatus[status._id] = status.count;
       networkStatus.total += status.count;
     });
-
-    // --- 3. GRÁFICO DE VENTAS (ÚLTIMOS 7 DÍAS) ---
     const salesLast7Days = await Sale.aggregate([
       { $match: { 
           createdAt: { $gte: new Date(new Date().setDate(new Date().getDate() - 7)) },
@@ -150,18 +138,15 @@ app.get('/api/analytics/admin-dashboard', async (req, res) => {
       }},
       { $sort: { _id: 1 } }
     ]);
-
-    // --- 4. FEED DE ACTIVIDAD RECIENTE ---
     const recentSales = await Sale.find({ status: 'approved' }).sort({ createdAt: -1 }).limit(5);
     const criticalAlerts = await Machine.find({ status: 'offline' }).sort({ lastHeartbeat: -1 }).limit(5);
-
     res.json({
       kpis: {
         totalRevenueToday,
         revenueChangeVsYesterday: totalRevenueYesterday > 0 ? ((totalRevenueToday - totalRevenueYesterday) / totalRevenueYesterday) * 100 : totalRevenueToday > 0 ? 100 : 0,
         totalUnitsToday,
         ticketPromedio,
-        lowStockItemsCount, // <-- LÍNEA CORREGIDA
+        lowStockItemsCount,
       },
       networkStatus,
       salesLast7Days,
@@ -176,8 +161,6 @@ app.get('/api/analytics/admin-dashboard', async (req, res) => {
   }
 });
 
-
-// Endpoint para el Dashboard del Técnico
 app.get('/api/analytics/technician-dashboard', async (req, res) => {
   try {
     const machinesRequiringAttention = await Machine.find({
@@ -193,7 +176,6 @@ app.get('/api/analytics/technician-dashboard', async (req, res) => {
   }
 });
 
-// Endpoint para el Dashboard de Ventas
 app.get('/api/analytics/sales-performance', async (req, res) => {
   try {
     const topProducts = await Sale.aggregate([
@@ -220,7 +202,6 @@ app.get('/api/analytics/sales-performance', async (req, res) => {
     res.status(500).send('Error en el servidor');
   }
 });
-
 
 // --- ENDPOINTS PARA MÁQUINAS ---
 app.post('/api/machines', async (req, res) => {
@@ -469,16 +450,35 @@ const checkMachineStatuses = async () => {
     console.log(`⏰ Ejecutando tarea del vigilante: Verificando máquinas inactivas...`);
     const TOLERANCE_MINUTES = 7;
     const cutoffTime = new Date(Date.now() - TOLERANCE_MINUTES * 60 * 1000);
+    
     try {
-        const result = await Machine.updateMany(
-            { 
-                status: 'online', 
-                lastHeartbeat: { $lt: cutoffTime }
-            },
-            { $set: { status: 'offline' } }
-        );
-        if (result.modifiedCount > 0) {
-            console.log(`🚨 Vigilante: ${result.modifiedCount} máquina(s) marcada(s) como offline.`);
+        const machinesToFlag = await Machine.find({
+            status: 'online',
+            lastHeartbeat: { $lt: cutoffTime }
+        });
+
+        if (machinesToFlag.length > 0) {
+            console.log(`🚨 Vigilante: ${machinesToFlag.length} máquina(s) a punto de ser marcadas como offline.`);
+
+            const usersToAlert = await User.find({
+              'notificationPreferences.email.machineOffline': true,
+              role: { $in: ['admin', 'technician'] }
+            });
+
+            const recipientEmails = usersToAlert.map(user => user.email);
+
+            if (recipientEmails.length > 0) {
+              for (const machine of machinesToFlag) {
+                  sendMachineOfflineAlert(machine, recipientEmails);
+              }
+            } else {
+              console.log("Vigilante: No se encontraron usuarios para notificar sobre máquinas offline.");
+            }
+
+            await Machine.updateMany(
+                { _id: { $in: machinesToFlag.map(m => m._id) } },
+                { $set: { status: 'offline' } }
+            );
         } else {
             console.log(`✅ Vigilante: Todas las máquinas online están reportando correctamente.`);
         }
