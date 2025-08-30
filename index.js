@@ -1,4 +1,4 @@
-// index.js (Versión final con todos los endpoints de analítica)
+// index.js (Versión final con Super-Endpoint de Admin)
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -97,25 +97,44 @@ app.post('/api/users/login', async (req, res) => {
 
 // --- ENDPOINTS DE ANALÍTICA ---
 
-// Endpoint para el Dashboard del Administrador
+// Endpoint Potenciado para el Dashboard del Administrador
 app.get('/api/analytics/admin-dashboard', async (req, res) => {
   try {
-    // --- KPIs ---
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
+    // --- 1. CÁLCULO DE KPIs ---
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayStart.getDate() + 1);
+    
+    const yesterdayStart = new Date(todayStart);
+    yesterdayStart.setDate(todayStart.getDate() - 1);
 
-    const salesToday = await Sale.find({
-      createdAt: { $gte: today, $lt: tomorrow },
-      status: 'approved'
-    });
+    const salesToday = await Sale.find({ createdAt: { $gte: todayStart, $lt: todayEnd }, status: 'approved' });
+    const salesYesterday = await Sale.find({ createdAt: { $gte: yesterdayStart, $lt: todayStart }, status: 'approved' });
+
     const totalRevenueToday = salesToday.reduce((total, sale) => total + sale.items.reduce((itemTotal, item) => itemTotal + (item.price * item.quantity), 0), 0);
-    const offlineMachinesCount = await Machine.countDocuments({ status: 'offline' });
-    const LOW_STOCK_THRESHOLD = 5;
-    const lowStockItemsCount = await Inventory.countDocuments({ quantity: { $lt: LOW_STOCK_THRESHOLD } });
+    const totalRevenueYesterday = salesYesterday.reduce((total, sale) => total + sale.items.reduce((itemTotal, item) => itemTotal + (item.price * item.quantity), 0), 0);
+    
+    const totalUnitsToday = salesToday.reduce((total, sale) => total + sale.items.reduce((itemTotal, item) => itemTotal + item.quantity, 0), 0);
+    
+    const ticketPromedio = salesToday.length > 0 ? totalRevenueToday / salesToday.length : 0;
+    
+    // --- 2. ESTADO DE LA RED ---
+    const machineStatus = await Machine.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+    const networkStatus = {
+      total: 0,
+      online: 0,
+      offline: 0,
+      maintenance: 0,
+    };
+    machineStatus.forEach(status => {
+      networkStatus[status._id] = status.count;
+      networkStatus.total += status.count;
+    });
 
-    // --- Gráfico de Ventas (Últimos 7 días) ---
+    // --- 3. GRÁFICO DE VENTAS (ÚLTIMOS 7 DÍAS) ---
     const salesLast7Days = await Sale.aggregate([
       { $match: { 
           createdAt: { $gte: new Date(new Date().setDate(new Date().getDate() - 7)) },
@@ -124,26 +143,27 @@ app.get('/api/analytics/admin-dashboard', async (req, res) => {
       { $unwind: '$items' },
       { $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
+          revenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
       }},
       { $sort: { _id: 1 } }
     ]);
-    
-    // --- Actividad Reciente ---
+
+    // --- 4. FEED DE ACTIVIDAD RECIENTE ---
     const recentSales = await Sale.find({ status: 'approved' }).sort({ createdAt: -1 }).limit(5);
-    const recentOfflineMachines = await Machine.find({ status: 'offline' }).sort({ lastHeartbeat: -1 }).limit(5);
-    
+    const criticalAlerts = await Machine.find({ status: 'offline' }).sort({ lastHeartbeat: -1 }).limit(5);
+
     res.json({
       kpis: {
         totalRevenueToday,
-        offlineMachinesCount,
-        lowStockItemsCount,
-        totalSalesToday: salesToday.length
+        revenueChangeVsYesterday: totalRevenueYesterday > 0 ? ((totalRevenueToday - totalRevenueYesterday) / totalRevenueYesterday) * 100 : totalRevenueToday > 0 ? 100 : 0,
+        totalUnitsToday,
+        ticketPromedio,
       },
+      networkStatus,
       salesLast7Days,
       recentActivity: {
         sales: recentSales,
-        offlineMachines: recentOfflineMachines
+        alerts: criticalAlerts
       }
     });
   } catch (err) {
@@ -159,11 +179,9 @@ app.get('/api/analytics/technician-dashboard', async (req, res) => {
     const machinesRequiringAttention = await Machine.find({
       status: { $in: ['offline', 'maintenance'] }
     }).sort({ status: 1, lastHeartbeat: 1 });
-
     const lowStockItems = await Inventory.find({
       quantity: { $lt: 5 }
     }).populate('productId', 'name').sort({ machineId: 1, channelId: 1 });
-
     res.json({ machinesRequiringAttention, lowStockItems });
   } catch (err) {
     console.error("Error al calcular datos del dashboard de técnico:", err.message);
@@ -175,36 +193,29 @@ app.get('/api/analytics/technician-dashboard', async (req, res) => {
 app.get('/api/analytics/sales-performance', async (req, res) => {
   try {
     const topProducts = await Sale.aggregate([
-      { $match: { status: 'approved' } },
-      { $unwind: '$items' },
+      { $match: { status: 'approved' } }, { $unwind: '$items' },
       { $group: {
           _id: '$items.name',
           totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
           totalUnitsSold: { $sum: '$items.quantity' }
       }},
-      { $sort: { totalRevenue: -1 } },
-      { $limit: 10 }
+      { $sort: { totalRevenue: -1 } }, { $limit: 10 }
     ]);
-
     const topMachines = await Sale.aggregate([
-      { $match: { status: 'approved' } },
-      { $unwind: '$items' },
+      { $match: { status: 'approved' } }, { $unwind: '$items' },
       { $group: {
           _id: '$machineId',
           totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
           totalSales: { $sum: 1 }
       }},
-      { $sort: { totalRevenue: -1 } },
-      { $limit: 10 }
+      { $sort: { totalRevenue: -1 } }, { $limit: 10 }
     ]);
-
     res.json({ topProducts, topMachines });
   } catch (err) {
     console.error("Error al calcular performance de ventas:", err.message);
     res.status(500).send('Error en el servidor');
   }
 });
-
 
 // --- ENDPOINTS PARA MÁQUINAS ---
 app.post('/api/machines', async (req, res) => {
