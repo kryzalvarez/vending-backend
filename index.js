@@ -1,4 +1,4 @@
-// index.js (Versión final y completa)
+// index.js (Versión completa y corregida)
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -176,8 +176,6 @@ app.get('/api/analytics/technician-dashboard', async (req, res) => {
   }
 });
 
-// En tu archivo index.js del backend
-
 app.get('/api/analytics/sales-performance', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -239,18 +237,30 @@ app.post('/api/machines', async (req, res) => {
   }
 });
 
-// index.js (Versión corregida y defensiva)
 app.get('/api/machines', async (req, res) => {
-  try {
-    // Filtra directamente en la consulta a la base de datos
-    const machines = await Machine.find({ 
-      "location": { "$exists": true, "$ne": null } 
-    });
-    res.json(machines);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Error en el servidor');
-  }
+  try {
+    const machines = await Machine.find();
+    res.json(machines);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Error en el servidor');
+  }
+});
+
+// --- RUTA AÑADIDA PARA OBTENER UNA SOLA MÁQUINA ---
+app.get('/api/machines/:machineId', async (req, res) => {
+  try {
+    const machine = await Machine.findOne({ machineId: req.params.machineId });
+    
+    if (!machine) {
+      return res.status(404).json({ msg: 'Máquina no encontrada' });
+    }
+
+    res.json(machine);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Error en el servidor');
+  }
 });
 
 app.patch('/api/machines/:machineId/status', async (req, res) => {
