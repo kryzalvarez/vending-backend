@@ -374,6 +374,42 @@ app.delete('/api/inventory/:id', async (req, res) => {
   }
 });
 
+// index.js (Añade este bloque)
+
+// --- ENDPOINTS PARA PRODUCTOS ---
+
+// (Aquí están tus rutas POST y GET para productos)
+
+// 👇 AÑADE ESTE NUEVO ENDPOINT PARA ACTUALIZAR UN PRODUCTO 👇
+app.put('/api/products/:id', async (req, res) => {
+  try {
+    const { sku, name, description } = req.body;
+
+    // Construir el objeto con los campos a actualizar
+    const productFields = {};
+    if (sku) productFields.sku = sku;
+    if (name) productFields.name = name;
+    if (description) productFields.description = description;
+
+    let product = await Product.findById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ msg: 'Producto no encontrado' });
+    }
+
+    product = await Product.findByIdAndUpdate(
+      req.params.id,
+      { $set: productFields },
+      { new: true } // Devuelve el documento modificado
+    );
+
+    res.json(product);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Error en el servidor');
+  }
+});
+
 
 // --- ENDPOINTS PARA VENTAS Y PAGOS ---
 app.post('/api/sales/create-payment', async (req, res) => {
