@@ -239,14 +239,18 @@ app.post('/api/machines', async (req, res) => {
   }
 });
 
+// index.js (Versión corregida y defensiva)
 app.get('/api/machines', async (req, res) => {
-  try {
-    const machines = await Machine.find();
-    res.json(machines);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Error en el servidor');
-  }
+  try {
+    // Filtra directamente en la consulta a la base de datos
+    const machines = await Machine.find({ 
+      "location": { "$exists": true, "$ne": null } 
+    });
+    res.json(machines);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Error en el servidor');
+  }
 });
 
 app.patch('/api/machines/:machineId/status', async (req, res) => {
