@@ -374,13 +374,7 @@ app.delete('/api/inventory/:id', async (req, res) => {
   }
 });
 
-// index.js (Añade este bloque)
 
-// --- ENDPOINTS PARA PRODUCTOS ---
-
-// (Aquí están tus rutas POST y GET para productos)
-
-// 👇 AÑADE ESTE NUEVO ENDPOINT PARA ACTUALIZAR UN PRODUCTO 👇
 app.put('/api/products/:id', async (req, res) => {
   try {
     const { sku, name, description } = req.body;

@@ -1,9 +1,13 @@
-// models/Inventory.js
+// models/Inventory.js (Versión Corregida)
 const mongoose = require('mongoose');
 
 const inventorySchema = new mongoose.Schema({
     machineId: { type: String, required: true, index: true },
-    channelId: { type: Number, required: true },
+    
+    // --- CORRECCIÓN AQUÍ ---
+    // Cambiamos el tipo de Number a String para aceptar valores como "A1", "B3", etc.
+    channelId: { type: String, required: true },
+    
     productId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Product', // Esto crea una relación con nuestro modelo Product
